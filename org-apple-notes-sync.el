@@ -5,6 +5,17 @@
 
 ;;; Customization
 
+(defgroup org-apple-notes-sync nil
+  "Customization options for org-apple-notes-sync."
+  :group 'external)
+
+(defcustom org-apple-notes-sync-completing-read-fn #'completing-read
+  "ido users should set this to ido-completing-read.
+Helm users should set this to helm-comp-read.
+Ivy users should set this to ivy-completing-read."
+  :group 'org-apple-notes-sync
+  :type 'function)
+
 
 ;;; Variables
 
@@ -20,6 +31,14 @@
 ;;   (interactive)
 ;;   (package-name--something)
 ;;   (bar))
+
+(defun org-apple-notes-sync-write-buffer-to-apple-note ()
+  (interactive)
+  (if (not (eq 'org-mode major-mode))
+      (message "not in Org mode")
+    (seq-let [account folder note] (org-apple-notes-sync--select-apple-note)
+      (message note)
+      )))
 
 
 ;;; Support
@@ -84,20 +103,51 @@ end tell
 outputaccounts
 ")
 
+(defun org-apple-notes-sync--applescript (str)
+  (declare (indent 0))
+  (let ((scpt (concatenate 'string
+                           org-apple-notes-sync--applescript-base
+                           str)))
+    (do-applescript scpt)))
+
 (defun org-apple-notes-sync--list-apple-notes ()
   "Returns all Notes documents."
-  (let* ((scpt (concatenate 'string
-                            org-apple-notes-sync--applescript-base
-                            org-apple-notes-sync--applescript-list-notes))
-         (notes-raw (do-applescript scpt))
+  (let* ((notes-raw (org-apple-notes-sync--applescript
+                      org-apple-notes-sync--applescript-list-notes))
          (notes (json-read-from-string notes-raw)))
     notes))
+
+(defun org-apple-notes-sync--select-apple-note ()
+  (let ((notes (org-apple-notes-sync--list-apple-notes))
+        (notes-for-completing-read (make-hash-table :test 'equal))
+        (display-names (list)))
+    ;; construct a map where the keys are display strings for note selection and
+    ;; the values are lists consisting of the uniquely combination of account,
+    ;; folder, and note title
+    (mapc (lambda (account)
+            (let ((account-name (car account))
+                  (account-folders (cdr account)))
+              (mapc (lambda (folder)
+                      (let ((folder-name (car folder))
+                            (note-names (cdr folder)))
+                        (mapc (lambda (note-name)
+                                (let* ((args (list account-name folder-name note-name))
+                                       (display-name (apply #'format "%s / %s / %s" args)))
+                                  (push display-name display-names)
+                                  (puthash display-name args notes-for-completing-read)))
+                              note-names)))
+                    account-folders)))
+          notes)
+    (let ((selected-note (funcall org-apple-notes-sync-completing-read-fn
+                                  "Select Apple note: "
+                                  (sort display-names #'string-lessp))))
+      (gethash selected-note notes-for-completing-read))))
 
 (defun org-apple-notes-sync--read-apple-note (note)
   "..."
   nil)
 
-(defun org-apple-notes-sync--write-apple-note (note new-contents)
+(defun org-apple-notes-sync--write-apple-note (account folder note new-contents)
   "..."
   nil)
 
