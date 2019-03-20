@@ -33,12 +33,33 @@ Ivy users should set this to ivy-completing-read."
 ;;   (bar))
 
 (defun org-apple-notes-sync-write-buffer-to-apple-note ()
+  "Prompt for a Notes document, and save the current buffer's contents there.
+
+If the Notes document exists, prompt to overwrite it. With a
+prefix argument, do not prompt and force overwrite.
+
+FIXME: If there's a special Org variable set in the buffer, do
+not prompt for note name.
+FIXME: Respect the Org TITLE variable.
+"
   (interactive)
   (if (not (eq 'org-mode major-mode))
       (message "not in Org mode")
     (seq-let [account folder note] (org-apple-notes-sync--select-apple-note)
-      (message note)
-      )))
+      (when (or current-prefix-arg
+                (not (org-apple-notes-sync--apple-note-exists-p account folder note))
+                (yes-or-no-p (format "%s / %s / %s exists! Overwrite? " account folder note)))
+        (let ((title (file-name-base (buffer-file-name))))
+          ;; FIXME: Use better temp buffer name.
+          (with-current-buffer (org-export-to-buffer 'html "*orgmode-to-apple-notes*")
+            ;; escape backslashes, then escape double quotes
+            (let ((body (replace-regexp-in-string
+                         "\"" "\\\\\""
+                         (replace-regexp-in-string
+                          "\\\\" "\\\\\\\\" (buffer-string)))))
+              (org-apple-notes-sync--write-apple-note account folder note body)
+              ;; FIXME: kill-buffer in unwind-protect
+              (kill-buffer))))))))
 
 
 ;;; Support
@@ -101,6 +122,23 @@ tell application \"Notes\"
   set outputaccounts to (\"{\" & (my join(realaccounts, \",\")) & \"}\")
 end tell
 outputaccounts
+")
+
+(setq org-apple-notes-sync--applescript-tmpl-note-exists "
+set argacct to \"%s\"
+set argfolder to \"%s\"
+set argnote to \"%s\"
+tell application \"Notes\"
+  tell account argacct
+    tell folder argfolder
+      if (note named argnote exists) then
+        \"true\"
+      else
+        \"false\"
+      end if
+    end tell
+  end tell
+end tell
 ")
 
 (setq org-apple-notes-sync--applescript-tmpl-read-note "
@@ -169,7 +207,16 @@ end tell
     (let ((selected-note (funcall org-apple-notes-sync-completing-read-fn
                                   "Select Apple note: "
                                   (sort display-names #'string-lessp))))
+      ;; FIXME: Allow writing a new note. Prompt individually for account,
+      ;; folder, and note name.
       (gethash selected-note notes-for-completing-read))))
+
+(defun org-apple-notes-sync--apple-note-exists-p (account folder note)
+  "Checks if a Notes document exists."
+  (let ((res (org-apple-notes-sync--applescript
+               (format org-apple-notes-sync--applescript-tmpl-note-exists
+                       account folder note))))
+    (string-equal "true" res)))
 
 (defun org-apple-notes-sync--read-apple-note (account folder note)
   "Read a Notes document."
