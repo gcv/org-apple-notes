@@ -16,4 +16,13 @@ This Emacs package provides two-way synchronization between an Org file and a do
 
 ** Instructions
 
+???
 
+
+** Status
+
+This does not round-trip cleanly due to the way the Apple Notes import process works.
+
+- Notes import mucks with the HTML, for example: <h2> tags get converted to <span style="font-size: 18px">...</span> tags, though native subheadings export as <h2>.
+- Notes heading formatting is not preserved and cannot be written to.
+- Notes checklists do not import or export.
