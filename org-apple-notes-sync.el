@@ -49,17 +49,45 @@ FIXME: Respect the Org TITLE variable.
       (when (or current-prefix-arg
                 (not (org-apple-notes-sync--apple-note-exists-p account folder note))
                 (yes-or-no-p (format "%s / %s / %s exists! Overwrite? " account folder note)))
-        (let ((title (file-name-base (buffer-file-name))))
+        (let ((title (file-name-base (buffer-file-name)))
+              (org-export-with-section-numbers nil)
+              (org-export-with-author nil)
+              (org-export-with-date nil)
+              (org-export-with-statistics-cookies nil)
+              (org-export-with-toc nil)
+              (org-export-with-title nil)
+              (org-html-preamble nil)
+              (org-html-postamble nil)
+              (org-html-head-include-scripts nil)
+              (org-html-head-include-default-style nil)
+              (org-html-xml-declaration '(("html" . "")))
+              (org-html-doctype "")
+              (org-html-checkbox-type 'ascii)
+              (org-html-toplevel-hlevel 2)
+              )
           ;; FIXME: Use better temp buffer name.
           (with-current-buffer (org-export-to-buffer 'html "*orgmode-to-apple-notes*")
-            ;; escape backslashes, then escape double quotes
-            (let ((body (replace-regexp-in-string
-                         "\"" "\\\\\""
-                         (replace-regexp-in-string
-                          "\\\\" "\\\\\\\\" (buffer-string)))))
-              (org-apple-notes-sync--write-apple-note account folder note body)
-              ;; FIXME: kill-buffer in unwind-protect
-              (kill-buffer))))))))
+            ;; clean up the exported HTML
+            (org-apple-notes-sync--replace-regex-in-buffer "<head>.*\\(\n.*\\)*</head>\\(\n*\\)?" "")
+            (org-apple-notes-sync--replace-regex-in-buffer "<html>\\(\n*\\)?" "")
+            (org-apple-notes-sync--replace-regex-in-buffer "</html>\\(\n*\\)?" "")
+            (org-apple-notes-sync--replace-regex-in-buffer "<body>\\(\n*\\)?" "")
+            (org-apple-notes-sync--replace-regex-in-buffer "</body>\\(\n*\\)?" "")
+            (org-apple-notes-sync--replace-regex-in-buffer "\\(<.*\\)[[:space:]]+class=\"[[:alnum:]-_]+\"" "\\1")
+            (org-apple-notes-sync--replace-regex-in-buffer "\\(<.*\\)[[:space:]]+id=\"[[:alnum:]-_]+\"" "\\1")
+            ;; clean up table newlines
+            (org-apple-notes-sync--replace-regex-in-buffer "\n+<colgroup>" "\n<colgroup>")
+            (org-apple-notes-sync--replace-regex-in-buffer "\n+<col[[:space:]*]>" "\n<col>")
+            (org-apple-notes-sync--replace-regex-in-buffer "\n+<tr>" "\n<tr>")
+            ;; replace other newlines with <br> tags
+            (org-apple-notes-sync--replace-regex-in-buffer "<p>" "<br><p>")
+            (org-apple-notes-sync--replace-regex-in-buffer "\\(\n\\)\\(\n\\)\\{2\\}" "\n<br><br>")
+            (org-apple-notes-sync--replace-regex-in-buffer "\\(\n\\)\\(\n\\)\\{1\\}" "\n<br>")
+            ;; write
+            (org-apple-notes-sync--write-apple-note account folder note (buffer-string))
+            ;; FIXME: kill-buffer in unwind-protect
+            ;;(kill-buffer)
+            ))))))
 
 
 ;;; Support
@@ -228,7 +256,19 @@ end tell
   "Destructively write a Notes document."
   (org-apple-notes-sync--applescript
     (format org-apple-notes-sync--applescript-tmpl-write-note
-            account folder note new-contents)))
+            account folder note
+            ;; escape backslashes, then escape double quotes
+            (replace-regexp-in-string "\"" "\\\\\""
+                                      (replace-regexp-in-string
+                                       "\\\\" "\\\\\\\\" new-contents)))))
+
+(defun org-apple-notes-sync--replace-regex-in-buffer (rx replacement)
+  "Delete the given regex everywhere in the current buffer."
+  (let ((case-fold-search t))
+    (save-excursion
+      (goto-char (point-min))
+      (while (re-search-forward rx nil t)
+        (replace-match replacement)))))
 
 
 ;;; Footer
