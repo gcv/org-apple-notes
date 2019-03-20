@@ -43,7 +43,7 @@ Ivy users should set this to ivy-completing-read."
 
 ;;; Support
 
-(setq org-apple-notes-sync--applescript-base "
+(setq org-apple-notes-sync--applescript-tmpl-base "
 on join(itemlist, delim)
   set olddelims to AppleScript's text item delimiters
   set str to \"\"
@@ -72,7 +72,7 @@ on qe(str)
 end qe
 ")
 
-(setq org-apple-notes-sync--applescript-list-notes "
+(setq org-apple-notes-sync--applescript-tmpl-list-notes "
 tell application \"Notes\"
   set accnames to the name of every account
   set realaccounts to {}
@@ -103,17 +103,45 @@ end tell
 outputaccounts
 ")
 
+(setq org-apple-notes-sync--applescript-tmpl-read-note "
+set argacct to \"%s\"
+set argfolder to \"%s\"
+set argnote to \"%s\"
+tell application \"Notes\"
+  tell account argacct
+    tell folder argfolder
+      body of note argnote
+    end tell
+  end tell
+end tell
+")
+
+(setq org-apple-notes-sync--applescript-tmpl-write-note "
+set argacct to \"%s\"
+set argfolder to \"%s\"
+set argnote to \"%s\"
+set argtext to \"%s\"
+tell application \"Notes\"
+  tell account argacct
+    tell folder argfolder
+      if not (note named argnote exists) then
+        make new note with properties {name: argnote}
+      end if
+      set body of note argnote to argtext
+    end tell
+  end tell
+end tell
+")
+
 (defun org-apple-notes-sync--applescript (str)
   (declare (indent 0))
-  (let ((scpt (concatenate 'string
-                           org-apple-notes-sync--applescript-base
-                           str)))
+  (let ((scpt (format "%s\n%s" org-apple-notes-sync--applescript-tmpl-base str)))
     (do-applescript scpt)))
 
 (defun org-apple-notes-sync--list-apple-notes ()
   "Returns all Notes documents."
   (let* ((notes-raw (org-apple-notes-sync--applescript
-                      org-apple-notes-sync--applescript-list-notes))
+                      org-apple-notes-sync--applescript-tmpl-list-notes))
          (notes (json-read-from-string notes-raw)))
     notes))
 
@@ -143,13 +171,17 @@ outputaccounts
                                   (sort display-names #'string-lessp))))
       (gethash selected-note notes-for-completing-read))))
 
-(defun org-apple-notes-sync--read-apple-note (note)
-  "..."
-  nil)
+(defun org-apple-notes-sync--read-apple-note (account folder note)
+  "Read a Notes document."
+  (org-apple-notes-sync--applescript
+    (format org-apple-notes-sync--applescript-tmpl-read-note
+            account folder note)))
 
 (defun org-apple-notes-sync--write-apple-note (account folder note new-contents)
-  "..."
-  nil)
+  "Destructively write a Notes document."
+  (org-apple-notes-sync--applescript
+    (format org-apple-notes-sync--applescript-tmpl-write-note
+            account folder note new-contents)))
 
 
 ;;; Footer
