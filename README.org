@@ -1,6 +1,8 @@
 * ~org-apple-notes~
 
-This Emacs package provides two-way synchronization between an Org file and a document stored in Apple Notes. The goal is to provide the ability to edit notes on an Apple mobile device using the Notes app, and edit the same documents in Emacs where Emacs is available.
+This Emacs package will eventually provide two-way synchronization between an Org file and a document stored in Apple Notes. The goal is to provide the ability to edit notes on an Apple mobile device using the Notes app, and edit the same documents in Emacs where Emacs is available.
+
+Right now, only /push/ functionality from Org to Notes is implemented.
 
 
 ** Assumptions
