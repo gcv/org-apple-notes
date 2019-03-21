@@ -1,8 +1,5 @@
 ;;; org-apple-notes-sync.el --- Org to Apple Notes synchronizer  -*- lexical-binding: t; -*-
 
-;;; Requirements
-
-
 ;;; Customization
 
 (defgroup org-apple-notes-sync nil
@@ -15,79 +12,6 @@ Helm users should set this to helm-comp-read.
 Ivy users should set this to ivy-completing-read."
   :group 'org-apple-notes-sync
   :type 'function)
-
-
-;;; Variables
-
-
-;;; Keymaps
-
-
-;;; Commands
-
-;; ;;;###autoload
-;; (defun package-name-command (args)
-;;   "Frobnicate the flange."
-;;   (interactive)
-;;   (package-name--something)
-;;   (bar))
-
-(defun org-apple-notes-sync-write-buffer-to-apple-note ()
-  "Prompt for a Notes document, and save the current buffer's contents there.
-
-If the Notes document exists, prompt to overwrite it. With a
-prefix argument, do not prompt and force overwrite.
-
-FIXME: If there's a special Org variable set in the buffer, do
-not prompt for note name.
-FIXME: Respect the Org TITLE variable.
-"
-  (interactive)
-  (if (not (eq 'org-mode major-mode))
-      (message "not in Org mode")
-    (seq-let [account folder note] (org-apple-notes-sync--select-apple-note)
-      (when (or current-prefix-arg
-                (not (org-apple-notes-sync--apple-note-exists-p account folder note))
-                (yes-or-no-p (format "%s / %s / %s exists! Overwrite? " account folder note)))
-        (let ((title (file-name-base (buffer-file-name)))
-              (org-export-with-section-numbers nil)
-              (org-export-with-author nil)
-              (org-export-with-date nil)
-              (org-export-with-statistics-cookies nil)
-              (org-export-with-toc nil)
-              (org-export-with-title nil)
-              (org-html-preamble nil)
-              (org-html-postamble nil)
-              (org-html-head-include-scripts nil)
-              (org-html-head-include-default-style nil)
-              (org-html-xml-declaration '(("html" . "")))
-              (org-html-doctype "")
-              (org-html-checkbox-type 'ascii)
-              (org-html-toplevel-hlevel 2)
-              )
-          ;; FIXME: Use better temp buffer name.
-          (with-current-buffer (org-export-to-buffer 'html "*orgmode-to-apple-notes*")
-            ;; clean up the exported HTML
-            (org-apple-notes-sync--replace-regex-in-buffer "<head>.*\\(\n.*\\)*</head>\\(\n*\\)?" "")
-            (org-apple-notes-sync--replace-regex-in-buffer "<html>\\(\n*\\)?" "")
-            (org-apple-notes-sync--replace-regex-in-buffer "</html>\\(\n*\\)?" "")
-            (org-apple-notes-sync--replace-regex-in-buffer "<body>\\(\n*\\)?" "")
-            (org-apple-notes-sync--replace-regex-in-buffer "</body>\\(\n*\\)?" "")
-            (org-apple-notes-sync--replace-regex-in-buffer "\\(<.*\\)[[:space:]]+class=\"[[:alnum:]-_]+\"" "\\1")
-            (org-apple-notes-sync--replace-regex-in-buffer "\\(<.*\\)[[:space:]]+id=\"[[:alnum:]-_]+\"" "\\1")
-            ;; clean up table newlines
-            (org-apple-notes-sync--replace-regex-in-buffer "\n+<colgroup>" "\n<colgroup>")
-            (org-apple-notes-sync--replace-regex-in-buffer "\n+<col[[:space:]*]>" "\n<col>")
-            (org-apple-notes-sync--replace-regex-in-buffer "\n+<tr>" "\n<tr>")
-            ;; replace other newlines with <br> tags
-            (org-apple-notes-sync--replace-regex-in-buffer "<p>" "<br><p>")
-            (org-apple-notes-sync--replace-regex-in-buffer "\\(\n\\)\\(\n\\)\\{2\\}" "\n<br><br>")
-            (org-apple-notes-sync--replace-regex-in-buffer "\\(\n\\)\\(\n\\)\\{1\\}" "\n<br>")
-            ;; write
-            (org-apple-notes-sync--write-apple-note account folder note (buffer-string))
-            ;; FIXME: kill-buffer in unwind-protect
-            ;;(kill-buffer)
-            ))))))
 
 
 ;;; Support
@@ -211,7 +135,17 @@ end tell
          (notes (json-read-from-string notes-raw)))
     notes))
 
-(defun org-apple-notes-sync--select-apple-note ()
+(defun org-apple-notes-sync--select-apple-note-from-keywords ()
+  (let ((parsed-buffer (org-element-parse-buffer))
+        (note-vars (make-hash-table :test 'equal)))
+    (org-element-map parsed-buffer
+        'keyword (lambda (elt) (puthash (downcase (org-element-property :key elt)) (org-element-property :value elt) note-vars)))
+    (list (gethash "apple-notes-account" note-vars)
+          (gethash "apple-notes-folder" note-vars)
+          (or (gethash "apple-notes-title" note-vars)
+              (gethash "title" note-vars)))))
+
+(defun org-apple-notes-sync--select-apple-note-interactively ()
   (let ((notes (org-apple-notes-sync--list-apple-notes))
         (notes-for-completing-read (make-hash-table :test 'equal))
         (display-names (list)))
@@ -235,9 +169,16 @@ end tell
     (let ((selected-note (funcall org-apple-notes-sync-completing-read-fn
                                   "Select Apple note: "
                                   (sort display-names #'string-lessp))))
-      ;; FIXME: Allow writing a new note. Prompt individually for account,
+      ;; TODO: Allow writing a new note. Prompt individually for account,
       ;; folder, and note name.
       (gethash selected-note notes-for-completing-read))))
+
+(defun org-apple-notes-sync--select-apple-note ()
+  (let ((from-keywords (org-apple-notes-sync--select-apple-note-from-keywords)))
+    (seq-let [account folder title] from-keywords
+      (if (and account folder title)
+          from-keywords
+        (org-apple-notes-sync--select-apple-note-interactively)))))
 
 (defun org-apple-notes-sync--apple-note-exists-p (account folder note)
   "Checks if a Notes document exists."
@@ -271,6 +212,68 @@ end tell
         (replace-match replacement)))))
 
 
+;;; Commands
+
+;;;###autoload
+(defun org-apple-notes-sync-push ()
+  "Save the current buffer's contents in a Notes document.
+
+Determine the Notes document to write to as follows:
+
+- if the APPLE-NOTES-ACCOUNT, APPLE-NOTES-FOLDER, and
+  APPLE-NOTES-TITLE or TITLE keywords are set in the Org file,
+  use them (i.e., #+APPLE-NOTES-FOLDER: Some Folder)
+- otherwise, prompt using org-apple-notes-sync-completing-read-fn
+
+If the Notes document exists, prompt to overwrite it. With a
+prefix argument, do not prompt and force overwrite.
+"
+  (interactive)
+  (if (not (eq 'org-mode major-mode))
+      (message "not in Org mode")
+    (seq-let [account folder note] (org-apple-notes-sync--select-apple-note)
+      (when (or current-prefix-arg
+                (not (org-apple-notes-sync--apple-note-exists-p account folder note))
+                (yes-or-no-p (format "%s / %s / %s exists! Overwrite? " account folder note)))
+        (let ((title (file-name-base (buffer-file-name)))
+              (tmp-buffer-name (format "*%04x%04x*" (random (expt 16 4)) (random (expt 16 4))))
+              (org-export-with-section-numbers nil)
+              (org-export-with-author nil)
+              (org-export-with-date nil)
+              (org-export-with-statistics-cookies nil)
+              (org-export-with-toc nil)
+              (org-export-with-title nil)
+              (org-html-preamble nil)
+              (org-html-postamble nil)
+              (org-html-head-include-scripts nil)
+              (org-html-head-include-default-style nil)
+              (org-html-xml-declaration '(("html" . "")))
+              (org-html-doctype "")
+              (org-html-checkbox-type 'ascii)
+              (org-html-toplevel-hlevel 2))
+          (unwind-protect
+               (with-current-buffer (org-export-to-buffer 'html tmp-buffer-name)
+                 ;; clean up the exported HTML
+                 (org-apple-notes-sync--replace-regex-in-buffer "<head>.*\\(\n.*\\)*</head>\\(\n*\\)?" "")
+                 (org-apple-notes-sync--replace-regex-in-buffer "<html>\\(\n*\\)?" "")
+                 (org-apple-notes-sync--replace-regex-in-buffer "</html>\\(\n*\\)?" "")
+                 (org-apple-notes-sync--replace-regex-in-buffer "<body>\\(\n*\\)?" "")
+                 (org-apple-notes-sync--replace-regex-in-buffer "</body>\\(\n*\\)?" "")
+                 (org-apple-notes-sync--replace-regex-in-buffer "\\(<.*\\)[[:space:]]+class=\"[[:alnum:]-_]+\"" "\\1")
+                 (org-apple-notes-sync--replace-regex-in-buffer "\\(<.*\\)[[:space:]]+id=\"[[:alnum:]-_]+\"" "\\1")
+                 ;; clean up table newlines
+                 (org-apple-notes-sync--replace-regex-in-buffer "\n+<colgroup>" "\n<colgroup>")
+                 (org-apple-notes-sync--replace-regex-in-buffer "\n+<col[[:space:]*]>" "\n<col>")
+                 (org-apple-notes-sync--replace-regex-in-buffer "\n+<tr>" "\n<tr>")
+                 ;; replace other newlines with <br> tags
+                 (org-apple-notes-sync--replace-regex-in-buffer "<div>\n*<p>" "<div><br><p>")
+                 (org-apple-notes-sync--replace-regex-in-buffer "\\(\n\\)\\(\n\\)\\{2\\}" "\n<br><br>")
+                 (org-apple-notes-sync--replace-regex-in-buffer "\\(\n\\)\\(\n\\)\\{1\\}" "\n<br>")
+                 ;; write
+                 (org-apple-notes-sync--write-apple-note account folder note (buffer-string)))
+            (kill-buffer tmp-buffer-name)))))))
+
+
 ;;; Footer
 
-;; (provide 'org-apple-notes-sync)
+(provide 'org-apple-notes-sync)
