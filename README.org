@@ -1,4 +1,4 @@
-* ~org-apple-notes-sync~
+* ~org-apple-notes~
 
 This Emacs package provides two-way synchronization between an Org file and a document stored in Apple Notes. The goal is to provide the ability to edit notes on an Apple mobile device using the Notes app, and edit the same documents in Emacs where Emacs is available.
 
@@ -9,20 +9,35 @@ This Emacs package provides two-way synchronization between an Org file and a do
 - for mobile sync, the macOS user account is connected to the same iCloud account as the target mobile devices
 
 
-** Requirements
-
-???
-
-
 ** Instructions
 
-???
+In an Org file, call ~org-apple-notes-push~.
+
+If the following are defined in the Org file, they specify which Apple Notes document to push to:
+#+BEGIN_SRC
+#+APPLE-NOTES-ACCOUNT: iCloud
+#+APPLE-NOTES-FOLDER: Writing
+#+APPLE-NOTES-TITLE: Short Story Ideas
+#+END_SRC
+Otherwise, the function prompts using ~org-apple-notes-completing-read-fn~, which can be customized. Helm users should set it to ~helm-comp-read~ and Ivy users should set it to ~ivy-completing-read~. Ido users may prefer ~ido-completing-read~.
 
 
-** Status
+** Limitations
 
-This does not round-trip cleanly due to the way the Apple Notes import process works.
+~org-apple-notes-pull~ which would read an Apple Notes document, is not currently implemented (see the Next section).
 
-- Notes import mucks with the HTML, for example: <h2> tags get converted to <span style="font-size: 18px">...</span> tags, though native subheadings export as <h2>.
+Text not round-trip cleanly due to the way the Apple Notes import process works.
+
+- Notes import mucks with the HTML, for example: ~<h2>~ tags get converted to ~<span style="font-size: 18px">...</span>~ tags, though native subheadings export as ~<h2>~.
 - Notes heading formatting is not preserved and cannot be written to.
 - Notes checklists do not import or export.
+
+
+** Next
+
+Should find a way to use Pandoc to read Notes into Org files. It won't be pretty, but it should at least allow some imports, if only for source-controlled clean files (to reduce data loss).
+
+
+** Bugs
+
+- problems with quotes in titles (AppleScript escape errors)
